@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -9,73 +10,87 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
-	"strconv"
 
 	"github.com/cli/go-gh"
 )
 
+type config struct {
+	org           string
+	path          string
+	repoListLimit string
+	dop           int
+	dryRun        bool
+	verbose       bool
+}
+
 func main() {
-	var org string
-	var path string
-	var repoListLimit string
-	var dryRun bool
-	var verbose bool
-
-	flag.StringVar(&path, "path", "", "local path for syncing repos")
-	flag.StringVar(&org, "org", "", "org to be synced")
-	flag.StringVar(&repoListLimit, "repo-list-limit", "5000", "repo list limit setting")
-	flag.BoolVar(&dryRun, "dry-run", false, "enable dry run")
-	flag.BoolVar(&verbose, "verbose", false, "enable verbose logging")
-	flag.Parse()
-
-	if org == "" {
-		flag.PrintDefaults()
+	cfg, err := processFLags()
+	if err != nil {
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	if path == "" {
-		path = "."
-	}
-
-	fmt.Printf("running with org: %s in path %s with dry-run %s\n", org, path, strconv.FormatBool(dryRun))
-
-	if isGitDirectory(path, "") {
+	if isGitDirectory(cfg.path, "") {
 		fmt.Println("should not be run inside a git repo")
 		os.Exit(1)
 	}
 
-	localRepos, err := getLocalRepos(path)
+	localRepos, err := getLocalRepos(cfg.path)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	reposToSync, err := getOrgRepos(org, repoListLimit)
+	reposToSync, err := getOrgRepos(cfg.org, cfg.repoListLimit)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	clone, sync, other := calculateRepoActions(org, localRepos, reposToSync)
+	clone, sync, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
 
-	if dryRun {
+	if cfg.dryRun {
 		reportDryRun(clone, sync, other)
 		return
 	}
 
-	cloned, err := cloneRepos(path, org, clone)
+	cloned, err := cloneRepos(cfg.path, cfg.org, clone)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	synced, err := syncRepos(path, sync)
+	synced, err := syncRepos(cfg.path, sync)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("%d cloned, %d synced. %d repos exist locally but not in GH", cloned, synced, len(other))
+}
+
+func processFLags() (config, error) {
+	cfg := config{}
+
+	flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
+	flag.StringVar(&cfg.org, "org", "", "org to be synced")
+	flag.StringVar(&cfg.repoListLimit, "repo-list-limit", "5000", "repo list limit setting")
+	flag.IntVar(&cfg.dop, "dop", 5, "degree of parallelism for actions")
+	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
+	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
+	flag.Parse()
+
+	if cfg.org == "" {
+		flag.PrintDefaults()
+		return config{}, errors.New("org was not provided")
+	}
+
+	if cfg.path == "" {
+		cfg.path = "."
+	}
+
+	fmt.Printf("flags: %+v\n", cfg)
+	return cfg, nil
 }
 
 func cloneRepos(rootPath, org string, repos []string) (int, error) {
