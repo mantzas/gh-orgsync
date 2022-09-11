@@ -25,7 +25,7 @@ type config struct {
 }
 
 func main() {
-	cfg, err := processFLags()
+	cfg, err := processFlags()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -55,28 +55,21 @@ func main() {
 		return
 	}
 
-	cloned, err := cloneRepos(cfg.path, cfg.org, clone)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	cns := &console{}
 
-	synced, err := syncRepos(cfg.path, sync)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
+	cloneRepos(cns, cfg.dop, cfg.path, cfg.org, clone)
+	syncRepos(cns, cfg.dop, cfg.path, sync)
 
-	fmt.Printf("%d cloned, %d synced. %d repos exist locally but not in GH", cloned, synced, len(other))
+	fmt.Printf("%d cloned, %d synced. %d repos exist locally but not in GH", 0, 0, len(other))
 }
 
-func processFLags() (config, error) {
+func processFlags() (config, error) {
 	cfg := config{}
 
 	flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
 	flag.StringVar(&cfg.org, "org", "", "org to be synced")
 	flag.StringVar(&cfg.repoListLimit, "repo-list-limit", "5000", "repo list limit setting")
-	flag.IntVar(&cfg.dop, "dop", 5, "degree of parallelism for actions")
+	flag.IntVar(&cfg.dop, "dop", 20, "degree of parallelism for actions")
 	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
 	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
 	flag.Parse()
@@ -94,28 +87,54 @@ func processFLags() (config, error) {
 	return cfg, nil
 }
 
-func cloneRepos(rootPath, org string, repos []string) (int, error) {
-	cloned := 0
-	for _, repo := range repos {
-		err := gitClone(rootPath, org, repo)
-		if err != nil {
-			return cloned, err
-		}
-		cloned++
+func cloneRepos(cns *console, dop int, rootPath, org string, repos []string) {
+	if len(repos) == 0 {
+		cns.Println("nothing to clone")
+		return
 	}
-	return cloned, nil
+	ch := make(chan cloneCmd)
+
+	cns.Printf("starting %d clone workers\n", dop)
+
+	for i := 0; i < dop; i++ {
+		go func(count int, cns *console) {
+			cns.Printf("starting clone worker %d\n", count)
+			for cmd := range ch {
+				gitClone(cns, cmd)
+			}
+		}(i, cns)
+	}
+
+	for _, repo := range repos {
+		ch <- cloneCmd{rootPath: rootPath, org: org, repo: repo}
+	}
+
+	close(ch)
 }
 
-func syncRepos(rootPath string, names []string) (int, error) {
-	synced := 0
-	for _, name := range names {
-		err := gitSync(rootPath, name)
-		if err != nil {
-			return synced, err
-		}
-		synced++
+func syncRepos(cns *console, dop int, rootPath string, names []string) {
+	if len(names) == 0 {
+		cns.Println("nothing to sync")
+		return
 	}
-	return synced, nil
+	ch := make(chan syncCmd)
+
+	cns.Printf("starting %d sync workers\n", dop)
+
+	for i := 0; i < dop; i++ {
+		go func(count int, cns *console) {
+			cns.Printf("starting sync worker %d\n", count)
+			for cmd := range ch {
+				gitSync(cns, cmd)
+			}
+		}(i, cns)
+	}
+
+	for _, name := range names {
+		ch <- syncCmd{rootPath: rootPath, directoryName: name}
+	}
+
+	close(ch)
 }
 
 func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
@@ -208,31 +227,38 @@ func isGitDirectory(rootPath, directoryName string) bool {
 	return err == nil
 }
 
-func gitSync(rootPath, directoryName string) error {
-	fmt.Printf("syncing %s\n", directoryName)
-	path := path.Join(rootPath, directoryName)
-	cmd := exec.Command("git", "-C", path, "fetch", "-p")
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to git fetch changes: %w", err)
-	}
-	cmd = exec.Command("git", "-C", path, "pull")
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to git pull changes in %s: %w", directoryName, err)
-	}
-	return nil
+type syncCmd struct {
+	rootPath      string
+	directoryName string
 }
 
-func gitClone(rootPath, org, name string) error {
-	fmt.Printf("cloning %s\n", name)
-	localPath := path.Join(rootPath, name)
-	_, bufErr, err := gh.Exec("repo", "clone", repoWithOwner(org, name), localPath)
+func gitSync(cns *console, cmd syncCmd) {
+	cns.Printf("syncing %s\n", cmd.directoryName)
+	path := path.Join(cmd.rootPath, cmd.directoryName)
+	execCmd := exec.Command("git", "-C", path, "fetch", "-p")
+	err := execCmd.Run()
 	if err != nil {
-		return fmt.Errorf("%s: %w", bufErr.String(), err)
+		cns.Printf("failed to git fetch changes: %v\n", err)
+		return
 	}
+	execCmd = exec.Command("git", "-C", path, "pull")
+	err = execCmd.Run()
+	if err != nil {
+		cns.Printf("failed to git pull changes in %s: %v\n", cmd.directoryName, err)
+	}
+}
 
-	return nil
+type cloneCmd struct {
+	rootPath string
+	org      string
+	repo     string
+}
+
+func gitClone(cns *console, cmd cloneCmd) {
+	cns.Printf("cloning %s\n", cmd.repo)
+	localPath := path.Join(cmd.rootPath, cmd.repo)
+	_, bufErr, err := gh.Exec("repo", "clone", repoWithOwner(cmd.org, cmd.repo), localPath)
+	cns.Printf("%s: %v", bufErr.String(), err)
 }
 
 func repoWithOwner(org, name string) string {
@@ -274,5 +300,11 @@ type console struct {
 func (c *console) Printf(format string, a ...any) {
 	c.mu.Lock()
 	fmt.Printf(format, a...)
+	c.mu.Unlock()
+}
+
+func (c *console) Println(a ...any) {
+	c.mu.Lock()
+	fmt.Println(a...)
 	c.mu.Unlock()
 }
