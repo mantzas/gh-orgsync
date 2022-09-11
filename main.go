@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	"github.com/cli/go-gh"
 )
@@ -264,4 +265,14 @@ func stringSliceToMap(values []string) map[string]struct{} {
 	}
 
 	return m
+}
+
+type console struct {
+	mu sync.Mutex
+}
+
+func (c *console) Printf(format string, a ...any) {
+	c.mu.Lock()
+	fmt.Printf(format, a...)
+	c.mu.Unlock()
 }
