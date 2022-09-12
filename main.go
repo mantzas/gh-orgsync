@@ -16,12 +16,11 @@ import (
 )
 
 type config struct {
-	org           string
-	path          string
-	repoListLimit string
-	dop           int
-	dryRun        bool
-	verbose       bool
+	org     string
+	path    string
+	dop     int
+	dryRun  bool
+	verbose bool
 }
 
 func main() {
@@ -42,25 +41,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	reposToSync, err := getOrgRepos(cfg.org, cfg.repoListLimit)
+	reposToSync, err := getOrgRepos(cfg.org)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	clone, sync, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
+	cloning, syncing, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
 
 	if cfg.dryRun {
-		reportDryRun(clone, sync, other)
+		reportDryRun(cloning, syncing, other)
 		return
 	}
 
 	cns := &console{}
+	wg := &sync.WaitGroup{}
+	cloneRepos(cns, wg, cfg.dop, cfg.path, cfg.org, cloning)
+	syncRepos(cns, wg, cfg.dop, cfg.path, syncing)
 
-	cloneRepos(cns, cfg.dop, cfg.path, cfg.org, clone)
-	syncRepos(cns, cfg.dop, cfg.path, sync)
-
+	wg.Wait()
 	fmt.Printf("%d cloned, %d synced. %d repos exist locally but not in GH", 0, 0, len(other))
+	// TODO: wait for sync and clone to finish via working group or channel.
 }
 
 func processFlags() (config, error) {
@@ -68,7 +69,6 @@ func processFlags() (config, error) {
 
 	flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
 	flag.StringVar(&cfg.org, "org", "", "org to be synced")
-	flag.StringVar(&cfg.repoListLimit, "repo-list-limit", "5000", "repo list limit setting")
 	flag.IntVar(&cfg.dop, "dop", 20, "degree of parallelism for actions")
 	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
 	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
@@ -85,56 +85,6 @@ func processFlags() (config, error) {
 
 	fmt.Printf("flags: %+v\n", cfg)
 	return cfg, nil
-}
-
-func cloneRepos(cns *console, dop int, rootPath, org string, repos []string) {
-	if len(repos) == 0 {
-		cns.Println("nothing to clone")
-		return
-	}
-	ch := make(chan cloneCmd)
-
-	cns.Printf("starting %d clone workers\n", dop)
-
-	for i := 0; i < dop; i++ {
-		go func(count int, cns *console) {
-			cns.Printf("starting clone worker %d\n", count)
-			for cmd := range ch {
-				gitClone(cns, cmd)
-			}
-		}(i, cns)
-	}
-
-	for _, repo := range repos {
-		ch <- cloneCmd{rootPath: rootPath, org: org, repo: repo}
-	}
-
-	close(ch)
-}
-
-func syncRepos(cns *console, dop int, rootPath string, names []string) {
-	if len(names) == 0 {
-		cns.Println("nothing to sync")
-		return
-	}
-	ch := make(chan syncCmd)
-
-	cns.Printf("starting %d sync workers\n", dop)
-
-	for i := 0; i < dop; i++ {
-		go func(count int, cns *console) {
-			cns.Printf("starting sync worker %d\n", count)
-			for cmd := range ch {
-				gitSync(cns, cmd)
-			}
-		}(i, cns)
-	}
-
-	for _, name := range names {
-		ch <- syncCmd{rootPath: rootPath, directoryName: name}
-	}
-
-	close(ch)
 }
 
 func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
@@ -169,8 +119,8 @@ func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone [
 	return
 }
 
-func getOrgRepos(org, repoListLimit string) ([]string, error) {
-	bufOut, bufErr, err := gh.Exec("repo", "list", org, "-L", repoListLimit, "--json", "name")
+func getOrgRepos(org string) ([]string, error) {
+	bufOut, bufErr, err := gh.Exec("repo", "list", org, "-L", "5000", "--json", "name")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", bufErr.String(), err)
 	}
@@ -227,13 +177,40 @@ func isGitDirectory(rootPath, directoryName string) bool {
 	return err == nil
 }
 
+func syncRepos(cns *console, wg *sync.WaitGroup, dop int, rootPath string, names []string) {
+	if len(names) == 0 {
+		cns.Println("nothing to sync")
+		return
+	}
+	ch := make(chan syncCmd)
+
+	cns.Printf("starting %d sync workers\n", dop)
+
+	for i := 0; i < dop; i++ {
+		wg.Add(1)
+		go func(index int, cns *console) {
+			cns.Printf("starting sync worker %d\n", index)
+			for cmd := range ch {
+				gitSync(cns, cmd)
+			}
+			cns.Printf("sync worker %d stopped\n", index)
+			wg.Done()
+		}(i, cns)
+	}
+
+	for _, name := range names {
+		ch <- syncCmd{rootPath: rootPath, directoryName: name}
+	}
+
+	close(ch)
+}
+
 type syncCmd struct {
 	rootPath      string
 	directoryName string
 }
 
 func gitSync(cns *console, cmd syncCmd) {
-	cns.Printf("syncing %s\n", cmd.directoryName)
 	path := path.Join(cmd.rootPath, cmd.directoryName)
 	execCmd := exec.Command("git", "-C", path, "fetch", "-p")
 	err := execCmd.Run()
@@ -245,7 +222,37 @@ func gitSync(cns *console, cmd syncCmd) {
 	err = execCmd.Run()
 	if err != nil {
 		cns.Printf("failed to git pull changes in %s: %v\n", cmd.directoryName, err)
+		return
 	}
+	cns.Printf("%s synced\n", cmd.directoryName)
+}
+
+func cloneRepos(cns *console, wg *sync.WaitGroup, dop int, rootPath, org string, repos []string) {
+	if len(repos) == 0 {
+		cns.Println("nothing to clone")
+		return
+	}
+	ch := make(chan cloneCmd)
+
+	cns.Printf("starting %d clone workers\n", dop)
+
+	for i := 0; i < dop; i++ {
+		wg.Add(1)
+		go func(index int, cns *console) {
+			cns.Printf("starting clone worker %d\n", index)
+			for cmd := range ch {
+				gitClone(cns, cmd)
+			}
+			cns.Printf("clone worker %d stopped\n", index)
+			wg.Done()
+		}(i, cns)
+	}
+
+	for _, repo := range repos {
+		ch <- cloneCmd{rootPath: rootPath, org: org, repo: repo}
+	}
+
+	close(ch)
 }
 
 type cloneCmd struct {
@@ -258,7 +265,12 @@ func gitClone(cns *console, cmd cloneCmd) {
 	cns.Printf("cloning %s\n", cmd.repo)
 	localPath := path.Join(cmd.rootPath, cmd.repo)
 	_, bufErr, err := gh.Exec("repo", "clone", repoWithOwner(cmd.org, cmd.repo), localPath)
-	cns.Printf("%s: %v", bufErr.String(), err)
+	if err != nil {
+		cns.Printf("%s: %v", bufErr.String(), err)
+		return
+	}
+
+	cns.Printf("%s cloned\n", cmd.repo)
 }
 
 func repoWithOwner(org, name string) string {
