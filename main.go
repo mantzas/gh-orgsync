@@ -46,8 +46,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := newLogger(cfg.verbose)
-	reporter := newReporter(logger, cfg.verbose)
+	reporter := newReporter(cfg.verbose)
 
 	cloning, syncing, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
 
@@ -58,7 +57,7 @@ func main() {
 
 	go reporter.process(len(cloning), len(syncing), len(other))
 
-	workers := newWorkers(cfg.dop, reporter, logger)
+	workers := newWorkers(cfg.dop, reporter)
 	workers.start()
 
 	for _, repo := range cloning {
