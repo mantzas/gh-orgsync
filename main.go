@@ -15,16 +15,15 @@ import (
 )
 
 type config struct {
-	org           string
-	path          string
-	repoListLimit string
-	dop           int
-	dryRun        bool
-	verbose       bool
+	org     string
+	path    string
+	dop     int
+	dryRun  bool
+	verbose bool
 }
 
 func main() {
-	cfg, err := processFLags()
+	cfg, err := processFlags()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -41,41 +40,44 @@ func main() {
 		os.Exit(1)
 	}
 
-	reposToSync, err := getOrgRepos(cfg.org, cfg.repoListLimit)
+	reposToSync, err := getOrgRepos(cfg.org)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	clone, sync, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
+	reporter := newReporter(cfg.verbose)
+
+	cloning, syncing, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
 
 	if cfg.dryRun {
-		reportDryRun(clone, sync, other)
+		reporter.dryRun(cloning, syncing, other)
 		return
 	}
 
-	cloned, err := cloneRepos(cfg.path, cfg.org, clone)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	go reporter.process(len(cloning), len(syncing), len(other))
+
+	workers := newWorkers(cfg.dop, reporter)
+	workers.start()
+
+	for _, repo := range cloning {
+		workers.enqueueClone(cfg.path, cfg.org, repo)
 	}
 
-	synced, err := syncRepos(cfg.path, sync)
-	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	for _, repo := range syncing {
+		workers.enqueueSync(cfg.path, cfg.org, repo)
 	}
 
-	fmt.Printf("%d cloned, %d synced. %d repos exist locally but not in GH", cloned, synced, len(other))
+	workers.wait()
+	reporter.wait()
 }
 
-func processFLags() (config, error) {
+func processFlags() (config, error) {
 	cfg := config{}
 
 	flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
 	flag.StringVar(&cfg.org, "org", "", "org to be synced")
-	flag.StringVar(&cfg.repoListLimit, "repo-list-limit", "5000", "repo list limit setting")
-	flag.IntVar(&cfg.dop, "dop", 5, "degree of parallelism for actions")
+	flag.IntVar(&cfg.dop, "dop", 20, "degree of parallelism for actions")
 	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
 	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
 	flag.Parse()
@@ -91,30 +93,6 @@ func processFLags() (config, error) {
 
 	fmt.Printf("flags: %+v\n", cfg)
 	return cfg, nil
-}
-
-func cloneRepos(rootPath, org string, repos []string) (int, error) {
-	cloned := 0
-	for _, repo := range repos {
-		err := gitClone(rootPath, org, repo)
-		if err != nil {
-			return cloned, err
-		}
-		cloned++
-	}
-	return cloned, nil
-}
-
-func syncRepos(rootPath string, names []string) (int, error) {
-	synced := 0
-	for _, name := range names {
-		err := gitSync(rootPath, name)
-		if err != nil {
-			return synced, err
-		}
-		synced++
-	}
-	return synced, nil
 }
 
 func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
@@ -149,8 +127,8 @@ func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone [
 	return
 }
 
-func getOrgRepos(org, repoListLimit string) ([]string, error) {
-	bufOut, bufErr, err := gh.Exec("repo", "list", org, "-L", repoListLimit, "--json", "name")
+func getOrgRepos(org string) ([]string, error) {
+	bufOut, bufErr, err := gh.Exec("repo", "list", org, "-L", "5000", "--json", "name")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", bufErr.String(), err)
 	}
@@ -205,63 +183,4 @@ func isGitDirectory(rootPath, directoryName string) bool {
 	cmd := exec.Command("git", "-C", path, "rev-parse")
 	err := cmd.Run()
 	return err == nil
-}
-
-func gitSync(rootPath, directoryName string) error {
-	fmt.Printf("syncing %s\n", directoryName)
-	path := path.Join(rootPath, directoryName)
-	cmd := exec.Command("git", "-C", path, "fetch", "-p")
-	err := cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to git fetch changes: %w", err)
-	}
-	cmd = exec.Command("git", "-C", path, "pull")
-	err = cmd.Run()
-	if err != nil {
-		return fmt.Errorf("failed to git pull changes in %s: %w", directoryName, err)
-	}
-	return nil
-}
-
-func gitClone(rootPath, org, name string) error {
-	fmt.Printf("cloning %s\n", name)
-	localPath := path.Join(rootPath, name)
-	_, bufErr, err := gh.Exec("repo", "clone", repoWithOwner(org, name), localPath)
-	if err != nil {
-		return fmt.Errorf("%s: %w", bufErr.String(), err)
-	}
-
-	return nil
-}
-
-func repoWithOwner(org, name string) string {
-	return fmt.Sprintf("%s/%s", org, name)
-}
-
-func reportDryRun(clone []string, sync []string, other []string) {
-	printSection("Clone", clone)
-	printSection("Sync", sync)
-	printSection("Other", other)
-}
-
-func printSection(section string, values []string) {
-	fmt.Println(section)
-	if len(values) == 0 {
-		fmt.Println("nothing to do")
-		return
-	}
-
-	for i, value := range values {
-		fmt.Printf("%5d %s\n", i+1, value)
-	}
-}
-
-func stringSliceToMap(values []string) map[string]struct{} {
-	m := make(map[string]struct{}, len(values))
-
-	for i := 0; i < len(values); i++ {
-		m[values[i]] = struct{}{}
-	}
-
-	return m
 }
