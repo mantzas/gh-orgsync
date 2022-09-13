@@ -121,11 +121,32 @@ func (r *reporter) process(clone, sync, others int) {
 			}
 		}
 	}
-	// TODO: report synce, cloned errors etc.
+
+	r.printFailures(stats.cloneResult.errors, stats.syncResult.errors)
+
+	// TODO: report sync, cloned errors etc.
 
 	fmt.Printf("stats: workers: %+v, clone: %+v, sync: %+v, other: %+v\n", stats.workerStats, stats.cloneStat,
 		stats.syncStat, stats.otherStat)
 	r.chReportingDone <- struct{}{}
+}
+
+func (r *reporter) printFailures(cloneErrors, syncErrors []error) {
+	if len(cloneErrors) != 0 {
+		fmt.Println("Clone failures")
+		for _, err := range cloneErrors {
+			fmt.Println(err)
+		}
+	}
+
+	if len(syncErrors) == 0 {
+		return
+	}
+
+	fmt.Println("Sync failures")
+	for _, err := range syncErrors {
+		fmt.Println(err)
+	}
 }
 
 func (r *reporter) reportSyncSuccess(worker int, repo string) {
