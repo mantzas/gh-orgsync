@@ -18,6 +18,7 @@ type config struct {
 	org          string
 	path         string
 	dop          int
+	syncOnly     bool
 	reportFields string
 	dryRun       bool
 	verbose      bool
@@ -53,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.org, localRepos, reposToSync)
+	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.syncOnly, cfg.org, localRepos, reposToSync)
 
 	if cfg.dryRun {
 		reporter.dryRun(cloning, syncing, other)
@@ -83,6 +84,7 @@ func processFlags() (config, error) {
 	flag.StringVar(&cfg.org, "org", "", "the org we want to sync. It is the only required flag.")
 	flag.StringVar(&cfg.path, "path", "", "defines the folder to sync to. When omitted local path is assumed.")
 	flag.IntVar(&cfg.dop, "dop", 50, "degree of parallelism defines the number of workers which will be used. Default value is 50.")
+	flag.BoolVar(&cfg.syncOnly, "sync-only", false, "enabled only syncing of existing local repos.")
 	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
 	flag.StringVar(&cfg.reportFields, "report", "error", "which allows reporting options (error, cloned, synced and other). default value is error.")
 	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
@@ -109,7 +111,7 @@ func processFlags() (config, error) {
 	return cfg, nil
 }
 
-func calculateRepoActions(verbose bool, org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
+func calculateRepoActions(verbose, syncOnly bool, org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
 	remoteMap := stringSliceToMap(remoteRepos)
 	localMap := stringSliceToMap(localRepos)
 
@@ -139,6 +141,10 @@ func calculateRepoActions(verbose bool, org string, localRepos, remoteRepos []st
 
 	if verbose {
 		fmt.Printf("%d to be cloned, %d to be synced and %d other\n", len(clone), len(sync), len(other))
+	}
+
+	if syncOnly {
+		clone = clone[:0] // clearing out cloning
 	}
 	return
 }
