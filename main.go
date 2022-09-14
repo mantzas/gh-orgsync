@@ -54,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.org, localRepos, reposToSync)
+	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.syncOnly, cfg.org, localRepos, reposToSync)
 
 	if cfg.dryRun {
 		reporter.dryRun(cloning, syncing, other)
