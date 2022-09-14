@@ -80,11 +80,11 @@ func main() {
 func processFlags() (config, error) {
 	cfg := config{}
 
-	flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
-	flag.StringVar(&cfg.org, "org", "", "org to be synced")
-	flag.IntVar(&cfg.dop, "dop", 50, "degree of parallelism for actions")
+	flag.StringVar(&cfg.org, "org", "", "the org we want to sync. It is the only required flag.")
+	flag.StringVar(&cfg.path, "path", "", "defines the folder to sync to. When omitted local path is assumed.")
+	flag.IntVar(&cfg.dop, "dop", 50, "degree of parallelism defines the number of workers which will be used. Default value is 50.")
 	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
-	flag.StringVar(&cfg.reportFields, "report", "error", "comma separated list of the following values to report: error, cloned, synced and other. defaults to error")
+	flag.StringVar(&cfg.reportFields, "report", "error", "which allows reporting options (error, cloned, synced and other). default value is error.")
 	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
 	flag.Parse()
 

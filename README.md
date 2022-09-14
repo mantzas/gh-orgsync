@@ -24,10 +24,10 @@ The extension will get a list of repos in the org and a list of the repos in the
 The extension contains multiple required and optional flags.
 
 * Org `--org {{orgname}}` which is the org we want to sync. It is the only required flag
-* Path `--path {{path to local folder}} which defines the folder to sync to
-* Degree Of Parallelism `--dop n` which will define the number of workers which will be used
+* Path `--path {{path to local folder}} which defines the folder to sync to. When omitted local path is assumed.
+* Degree Of Parallelism `--dop n` which will define the number of workers which will be used. Default value is 50.
 * Dry Run `--dry-run` which will only report the action which would be taken
-* ReportFields `--report x,y,z` which allows reporting options (error, cloned, synced and other)
+* ReportFields `--report x,y,z` which allows reporting options (error, cloned, synced and other). default value is error.
 * Verbose `--verbose` which enable verbose logging
 
 ## Usage
