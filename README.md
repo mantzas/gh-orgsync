@@ -25,14 +25,10 @@ The extension contains multiple required and optional flags.
 
 * Org `--org {{orgname}}` which is the org we want to sync. It is the only required flag
 * Path `--path {{path to local folder}} which defines the folder to sync to
-
-flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
- flag.StringVar(&cfg.org, "org", "", "org to be synced")
- flag.IntVar(&cfg.dop, "dop", 50, "degree of parallelism for actions")
- flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
- flag.StringVar(&cfg.reportFields, "report", "error", "comma separated list of the following values to report: error, cloned, synced and other. defaults to error")
- flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
- flag.Parse()
+* Degree Of Parallelism `--dop n` which will define the number of workers which will be used
+* Dry Run `--dry-run` which will only report the action which would be taken
+* ReportFields `--report x,y,z` which allows reporting options (error, cloned, synced and other)
+* Verbose `--verbose` which enable verbose logging
 
 ## Usage
 
