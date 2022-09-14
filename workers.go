@@ -93,13 +93,7 @@ func (w *workers) gitSync(worker int, cmd workCmd) {
 	execCmd := exec.Command("git", "-C", path, "fetch", "-p")
 	err := execCmd.Run()
 	if err != nil {
-		w.reporter.reportSyncFailure(worker, cmd.repo, fmt.Errorf("failed to git fetch changes: %w", err))
-		return
-	}
-	execCmd = exec.Command("git", "-C", path, "pull")
-	err = execCmd.Run()
-	if err != nil {
-		w.reporter.reportSyncFailure(worker, cmd.repo, fmt.Errorf("failed to git pull changes: %w", err))
+		w.reporter.reportSyncFailure(worker, cmd.repo, fmt.Errorf("failed to git fetch changes from %s: %w", cmd.repo, err))
 		return
 	}
 	w.reporter.reportSyncSuccess(worker, cmd.repo)
