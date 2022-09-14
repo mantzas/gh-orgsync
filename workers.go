@@ -90,7 +90,7 @@ func (w *workers) gitClone(worker int, cmd workCmd) {
 
 func (w *workers) gitSync(worker int, cmd workCmd) {
 	path := path.Join(cmd.rootPath, cmd.repo)
-	execCmd := exec.Command("git", "-C", path, "fetch", "-p")
+	execCmd := exec.Command("git", "-C", path, "fetch", "-p", "-P")
 	err := execCmd.Run()
 	if err != nil {
 		w.reporter.reportSyncFailure(worker, cmd.repo, fmt.Errorf("failed to git fetch changes from %s: %w", cmd.repo, err))
