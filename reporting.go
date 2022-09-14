@@ -1,6 +1,10 @@
 package main
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 type action int
 
@@ -41,7 +45,7 @@ type syncResult struct {
 }
 
 type otherStat struct {
-	total int
+	names []string
 }
 
 type workerStats struct {
@@ -70,15 +74,56 @@ func stringSliceToMap(values []string) map[string]struct{} {
 
 type reporter struct {
 	verbose         bool
+	fields          []string
 	chReporting     chan reportingCmd
 	chReportingDone chan struct{}
 }
 
-func newReporter(verbose bool) *reporter {
-	return &reporter{chReporting: make(chan reportingCmd, 1000), chReportingDone: make(chan struct{}), verbose: verbose}
+func newReporter(verbose bool, reportFields string) (*reporter, error) {
+	fields, err := validateReportFields(reportFields)
+	if err != nil {
+		return nil, err
+	}
+
+	return &reporter{
+		chReporting: make(chan reportingCmd, 1000), chReportingDone: make(chan struct{}),
+		verbose: verbose, fields: fields,
+	}, nil
 }
 
-func (r *reporter) process(clone, sync, others int) {
+func validateReportFields(value string) ([]string, error) {
+	if value == "" {
+		return nil, errors.New("fields are empty")
+	}
+
+	fieldMap := map[string]int{
+		"error":  0,
+		"cloned": 0,
+		"synced": 0,
+		"other":  0,
+		"all":    0,
+	}
+
+	fields := strings.Split(value, ",")
+
+	for _, field := range fields {
+		_, ok := fieldMap[field]
+		if !ok {
+			return nil, fmt.Errorf("report field %s is invalid", field)
+		}
+		fieldMap[field]++
+	}
+
+	for field, count := range fieldMap {
+		if count > 1 {
+			return nil, fmt.Errorf("report field %s exists multiple times", field)
+		}
+	}
+
+	return fields, nil
+}
+
+func (r *reporter) process(clone, sync int, others []string) {
 	stats := reportingStats{
 		cloneStat: cloneStat{
 			total: clone,
@@ -87,7 +132,7 @@ func (r *reporter) process(clone, sync, others int) {
 			total: sync,
 		},
 		otherStat: otherStat{
-			total: others,
+			names: others,
 		},
 	}
 
@@ -122,16 +167,32 @@ func (r *reporter) process(clone, sync, others int) {
 		}
 	}
 
-	r.printFailures(stats.cloneResult.errors, stats.syncResult.errors)
+	if r.verbose {
+		fmt.Printf("stats: workers: %+v, clone: %+v, sync: %+v, other: %d\n", stats.workerStats, stats.cloneStat,
+			stats.syncStat, len(stats.otherStat.names))
+	}
 
-	// TODO: report sync, cloned errors etc.
+	r.print(stats)
 
-	fmt.Printf("stats: workers: %+v, clone: %+v, sync: %+v, other: %+v\n", stats.workerStats, stats.cloneStat,
-		stats.syncStat, stats.otherStat)
 	r.chReportingDone <- struct{}{}
 }
 
-func (r *reporter) printFailures(cloneErrors, syncErrors []error) {
+func (r *reporter) print(stats reportingStats) {
+	for _, field := range r.fields {
+		switch field {
+		case "error":
+			r.printErrors(stats.cloneResult.errors, stats.syncResult.errors)
+		case "cloned":
+			printSection("Cloned", stats.cloneResult.names)
+		case "synced":
+			printSection("Synced", stats.cloneResult.names)
+		case "other":
+			printSection("Other", stats.cloneResult.names)
+		}
+	}
+}
+
+func (r *reporter) printErrors(cloneErrors, syncErrors []error) {
 	if len(cloneErrors) != 0 {
 		fmt.Println("Clone failures")
 		for _, err := range cloneErrors {
@@ -187,7 +248,7 @@ func (r *reporter) dryRun(clone []string, sync []string, other []string) {
 func printSection(section string, values []string) {
 	fmt.Println(section)
 	if len(values) == 0 {
-		fmt.Println("nothing to do")
+		fmt.Println("n/a")
 		return
 	}
 

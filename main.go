@@ -15,11 +15,12 @@ import (
 )
 
 type config struct {
-	org     string
-	path    string
-	dop     int
-	dryRun  bool
-	verbose bool
+	org          string
+	path         string
+	dop          int
+	reportFields string
+	dryRun       bool
+	verbose      bool
 }
 
 func main() {
@@ -34,28 +35,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	localRepos, err := getLocalRepos(cfg.path)
+	reporter, err := newReporter(cfg.verbose, cfg.reportFields)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	reposToSync, err := getOrgRepos(cfg.org)
+	localRepos, err := getLocalRepos(cfg.verbose, cfg.path)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	reporter := newReporter(cfg.verbose)
+	reposToSync, err := getOrgRepos(cfg.verbose, cfg.org)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 
-	cloning, syncing, other := calculateRepoActions(cfg.org, localRepos, reposToSync)
+	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.org, localRepos, reposToSync)
 
 	if cfg.dryRun {
 		reporter.dryRun(cloning, syncing, other)
 		return
 	}
 
-	go reporter.process(len(cloning), len(syncing), len(other))
+	go reporter.process(len(cloning), len(syncing), other)
 
 	workers := newWorkers(cfg.dop, reporter)
 	workers.start()
@@ -77,8 +82,9 @@ func processFlags() (config, error) {
 
 	flag.StringVar(&cfg.path, "path", "", "local path for syncing repos")
 	flag.StringVar(&cfg.org, "org", "", "org to be synced")
-	flag.IntVar(&cfg.dop, "dop", 20, "degree of parallelism for actions")
+	flag.IntVar(&cfg.dop, "dop", 50, "degree of parallelism for actions")
 	flag.BoolVar(&cfg.dryRun, "dry-run", false, "enable dry run")
+	flag.StringVar(&cfg.reportFields, "report", "error", "comma separated list of the following values to report: error, cloned, synced and other. defaults to error")
 	flag.BoolVar(&cfg.verbose, "verbose", false, "enable verbose logging")
 	flag.Parse()
 
@@ -87,15 +93,23 @@ func processFlags() (config, error) {
 		return config{}, errors.New("org was not provided")
 	}
 
+	if cfg.reportFields == "" {
+		flag.PrintDefaults()
+		return config{}, errors.New("report fields are not provided")
+	}
+
 	if cfg.path == "" {
 		cfg.path = "."
 	}
 
-	fmt.Printf("flags: %+v\n", cfg)
+	if cfg.verbose {
+		fmt.Printf("flags: %+v\n", cfg)
+	}
+
 	return cfg, nil
 }
 
-func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
+func calculateRepoActions(verbose bool, org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
 	remoteMap := stringSliceToMap(remoteRepos)
 	localMap := stringSliceToMap(localRepos)
 
@@ -123,11 +137,13 @@ func calculateRepoActions(org string, localRepos, remoteRepos []string) (clone [
 
 	sort.Strings(other)
 
-	fmt.Printf("%d to be cloned, %d to be synced and %d other\n", len(clone), len(sync), len(other))
+	if verbose {
+		fmt.Printf("%d to be cloned, %d to be synced and %d other\n", len(clone), len(sync), len(other))
+	}
 	return
 }
 
-func getOrgRepos(org string) ([]string, error) {
+func getOrgRepos(verbose bool, org string) ([]string, error) {
 	bufOut, bufErr, err := gh.Exec("repo", "list", org, "-L", "5000", "--json", "name")
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", bufErr.String(), err)
@@ -148,11 +164,14 @@ func getOrgRepos(org string) ([]string, error) {
 		repos = append(repos, repo.Name)
 	}
 
-	fmt.Printf("found %d remote repos\n", len(repos))
+	if verbose {
+		fmt.Printf("found %d remote repos\n", len(repos))
+	}
+
 	return repos, nil
 }
 
-func getLocalRepos(path string) ([]string, error) {
+func getLocalRepos(verbose bool, path string) ([]string, error) {
 	var folders []string
 
 	rootPath := filepath.Clean(path)
@@ -174,7 +193,10 @@ func getLocalRepos(path string) ([]string, error) {
 		folders = append(folders, entry.Name())
 	}
 
-	fmt.Printf("found %d local repos\n", len(folders))
+	if verbose {
+		fmt.Printf("found %d local repos\n", len(folders))
+	}
+
 	return folders, nil
 }
 
