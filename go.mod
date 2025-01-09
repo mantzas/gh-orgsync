@@ -1,6 +1,6 @@
 module github.com/mantzas/gh-orgsync
 
-go 1.19
+go 1.23
 
 require github.com/cli/go-gh v0.1.0
 
