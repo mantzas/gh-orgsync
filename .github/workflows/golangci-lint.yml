@@ -8,14 +8,15 @@ jobs:
     name: lint
     runs-on: ubuntu-latest
     steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: "go.mod"
 
-      - uses: actions/checkout@v3
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+      - name: Linting Go
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
