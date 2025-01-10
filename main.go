@@ -54,7 +54,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.syncOnly, cfg.org, localRepos, reposToSync)
+	cloning, syncing, other := calculateRepoActions(cfg.verbose, cfg.syncOnly, localRepos, reposToSync)
 
 	if cfg.dryRun {
 		reporter.dryRun(cloning, syncing, other)
@@ -111,7 +111,7 @@ func processFlags() (config, error) {
 	return cfg, nil
 }
 
-func calculateRepoActions(verbose, syncOnly bool, org string, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
+func calculateRepoActions(verbose, syncOnly bool, localRepos, remoteRepos []string) (clone []string, sync []string, other []string) {
 	remoteMap := stringSliceToMap(remoteRepos)
 	localMap := stringSliceToMap(localRepos)
 
