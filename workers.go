@@ -6,7 +6,7 @@ import (
 	"path"
 	"sync"
 
-	"github.com/cli/go-gh"
+	gh "github.com/cli/go-gh/v2"
 )
 
 type workAction int
