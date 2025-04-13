@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"github.com/cli/go-gh"
+	gh "github.com/cli/go-gh/v2"
 )
 
 type config struct {
