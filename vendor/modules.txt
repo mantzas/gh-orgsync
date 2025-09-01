@@ -1,4 +1,4 @@
-# github.com/cli/go-gh/v2 v2.12.1
+# github.com/cli/go-gh/v2 v2.12.2
 ## explicit; go 1.23.0
 github.com/cli/go-gh/v2
 # github.com/cli/safeexec v1.0.1
