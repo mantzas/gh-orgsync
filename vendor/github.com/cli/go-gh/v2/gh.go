@@ -36,7 +36,7 @@ func ExecContext(ctx context.Context, args ...string) (stdout, stderr bytes.Buff
 	return
 }
 
-// Exec invokes a gh command in a subprocess with its stdin, stdout, and stderr streams connected to
+// ExecInteractive invokes a gh command in a subprocess with its stdin, stdout, and stderr streams connected to
 // those of the parent process. This is suitable for running gh commands with interactive prompts.
 func ExecInteractive(ctx context.Context, args ...string) error {
 	ghExe, err := Path()
