@@ -2,12 +2,6 @@ module github.com/mantzas/gh-orgsync
 
 go 1.25.0
 
-require github.com/cli/go-gh/v2 v2.13.0
+require github.com/cli/go-gh/v2 v2.16.1
 
-require (
-	github.com/cli/safeexec v1.0.1 // indirect
-	github.com/henvic/httpretty v0.1.4 // indirect
-	github.com/thlib/go-timezone-local v0.0.6 // indirect
-	golang.org/x/sys v0.32.0 // indirect
-	golang.org/x/term v0.31.0 // indirect
-)
+require github.com/cli/safeexec v1.0.1 // indirect
